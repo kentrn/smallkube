@@ -1,0 +1,11 @@
+[kubenodes]
+kubenode1.kube.cluster ansible_host=x.x.x.x
+kubenode2.kube.cluster ansible_host=x.x.x.x
+kubenode3.kube.cluster ansible_host=x.x.x.x
+
+[masters]
+kubenode1.kube.cluster ansible_host=x.x.x.x
+
+[workers]
+kubenode2.kube.cluster ansible_host=x.x.x.x
+kubenode3.kube.cluster ansible_host=x.x.x.x

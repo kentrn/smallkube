@@ -1,0 +1,128 @@
+---
+- name: install kube node components
+  hosts: kubenodes
+  become: true
+  vars:
+   OS: CentOS_9_Stream
+   VERSION: 1.28
+   RELEASE: 1
+  tasks:
+    - name: set hostname to inventory
+      hostname:
+        name: "{{ inventory_hostname }}"
+    - name: gather ansible facts from bastion
+      setup:
+        gather_subset: 'default_ipv4'
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      with_items: "{{ groups['bastions'] }}"
+    - name: configure cri-o repo
+      yum_repository:
+        name: cri-tools
+        description: cri-o repository
+        baseurl: https://download.opensuse.org/repositories/devel:/kubic:/libcontainers:/stable:/cri-o:/{{ VERSION }}:/{{ VERSION }}.{{ RELEASE }}/{{ OS }}/
+        state: present
+        gpgcheck: false
+    - name: configure kube repository
+      yum_repository:
+        name: kube
+        description: kubernetes repository
+        baseurl: https://pkgs.k8s.io/core:/stable:/v{{ VERSION }}/rpm/
+        gpgcheck: true
+        gpgkey: https://pkgs.k8s.io/core:/stable:/v{{ VERSION }}/rpm/repodata/repomd.xml.key
+    - name: install cri-o package
+      dnf:
+        name: cri-o
+        state: installed
+    - name: install podman
+      dnf:
+        name: podman
+        state: installed
+    - name: Ensure overlay is enabled.
+      modprobe:
+        name: overlay
+        state: present
+    - name: Ensure br_netfilter is enabled.
+      modprobe:
+        name: br_netfilter
+        state: present
+    - name: change sysctl ip_forward to 1
+      ansible.posix.sysctl:
+        name: net.ipv4.ip_forward
+        value: 1
+        state: present
+        reload: true
+    - name: ensure sysctl net.bridge.bridge-nf-call-iptables exists
+      ansible.posix.sysctl:
+        name: net.bridge.bridge-nf-call-iptables
+        value: 1
+        state: present
+        reload: true
+    - name: ensure sysctl net.bridge.bridge-nf-call-ip6tables exists
+      ansible.posix.sysctl:
+        name: net.bridge.bridge-nf-call-ip6tables
+        value: 1
+        state: present
+        reload: true
+    - name: disable swap
+      command: swapoff -a
+      ignore_errors: yes
+    - name: Remove Swap Entries from /etc/fstab
+      lineinfile:
+        path: /etc/fstab
+        regexp: '^UUID=[a-f0-9-]+.*swap.*'
+        state: absent
+      ignore_errors: yes
+    - name: copy resolv.conf template
+      template:
+        src: ./files/resolv.conf.j2
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: 0644
+    - name: start crio
+      service:
+        name: crio
+        state: started
+        enabled: true
+    - name: disable selinux
+      ansible.posix.selinux:
+        state: disabled
+    - name: disable firewalld
+      service:
+        name: firewalld
+        state: stopped
+        enabled: false
+    - name: install kube tools
+      dnf:
+        name:
+          - kubelet
+          - kubeadm
+          - kubectl
+        state: installed
+    - name: start kubelet
+      service:
+        name: kubelet
+        state: started
+        enabled: true 
+    - name: check if kubelet.config exists 
+      stat:
+        path: /etc/kubernetes/kubelet.conf
+      register: kubelet_config
+    - name: run kubeadm init to bootstrap control plane
+      command: "kubeadm init"
+      when: (not kubelet_config.stat.exists) and ('masters' in group_names)
+    - name: generate join command
+      command: "kubeadm token create --print-join-command"
+      register: kube_join_command
+      delegate_to: "{{ groups['masters'] | list | first }}"
+    - name: join node to kubecluster
+      command: "{{ kube_join_command.stdout }}"
+      when: (not kubelet_config.stat.exists) and ('workers' in group_names)
+    - name: copy kubeconfig files to default user account
+      copy:
+        src: /etc/kubernetes/kubelet.conf
+        dest: "~/.kube/config"
+        owner: {{ ansible_user }}
+        group: {{ ansible_user  }}
+        mode: 0600
