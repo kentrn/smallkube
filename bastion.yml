@@ -1,0 +1,72 @@
+---
+- name: install bastion components
+  hosts: bastions
+  become: true
+  vars:
+    packages:
+      - haproxy
+      - bind
+    control_plane_endpoints:
+      - name: kube-api-server
+        port: 6443
+      - name: etcd-server
+        port: 2379
+      - name: kubelet-server
+        port: 10250
+  tasks:
+    - name: set hostname
+      hostname:
+        name: "{{ inventory_hostname }}"
+    - name: install haproxy/bind
+      yum:
+        name: "{{ item }}"
+        state: latest
+      loop: "{{ packages }}"
+    - name: gather ansible facts from kube nodes
+      setup:
+        gather_subset: 'default_ipv4'
+      delegate_to: "{{ item }}"
+      delegate_facts: true
+      with_items: "{{ groups['kubenodes'] }}"
+    - name: copy haproxy template
+      template:
+        src: ./files/haproxy.cfg.j2
+        dest: /etc/haproxy/haproxy.cfg
+        owner: root
+        group: root
+        mode: 0644
+    - name: copy named conf file
+      template:
+        src: ./files/named.conf.j2
+        dest: /etc/named.conf
+        owner: root
+        group: named
+        mode: 0644
+    - name: copy bind dns template
+      template:
+        src: ./files/my.domain.name.db.j2
+        dest: /var/named/kube.cluster.db
+        owner: root
+        group: named
+        mode: 0644
+    - name: copy bind reverse dns template
+      template:
+        src: ./files/my.domain.name.rev.j2
+        dest: /var/named/kube.cluster.rev
+        owner: root
+        group: named
+        mode: 0644
+    - name: copy resolv.conf template
+      template:
+        src: ./files/resolv.conf.j2
+        dest: /etc/resolv.conf
+        owner: root
+        group: root
+        mode: 0644
+    - name: start bind
+      service:
+        name: named
+        state: started
+        enabled: true
+    # - name: start haproxy
+    # - name: start bind

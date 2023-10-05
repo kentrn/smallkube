@@ -1,0 +1,23 @@
+$TTL 1W
+@	IN	SOA	kube.cluster.	root.kube.cluster. (
+			2023100100	; serial
+			3H		; refresh (3 hours)
+			30M		; retry (30 minutes)
+			2W		; expiry (2 weeks)
+			1W )		; minimum (1 week)
+;
+    IN	NS	ns1.kube.cluster.
+
+;Reverse lookup for Name Server
+{{ ansible_host | replace("192.168.","") | split(".") | reverse | join(".") }} IN  PTR ns1.kube.cluster.
+
+;KubeNode DNS Entries
+{% for host in groups['kubenodes'] %}
+{{ hostvars[host].ansible_facts['default_ipv4']['address'] | replace("192.168.","") | split(".") | reverse | join(".") }} IN	PTR	{{ hostvars[host].ansible_facts['hostname'] }}.kube.cluster.
+{% endfor %}
+;
+
+;LoadBalancer DNS Entries
+{{ ansible_host | replace("192.168.","") | split(".") | reverse | join(".") }} IN PTR lb.kube.cluster
+;
+;EOF
