@@ -67,6 +67,12 @@
         regexp: '^UUID=[a-f0-9-]+.*swap.*'
         state: absent
       ignore_errors: yes
+    - name: remove /dev/mapper/cs-swap
+      lineinfile:
+        path: /etc/fstab
+        regexp: '\/dev\/mapper\/cs-swap.*'
+        state: absent
+      ignore_errors: yes
     - name: start crio
       service:
         name: crio
@@ -106,10 +112,3 @@
     - name: join node to kubecluster
       command: "{{ kube_join_command.stdout }}"
       when: (not kubelet_config.stat.exists) and ('workers' in group_names)
-    - name: copy kubeconfig files to default user account
-      copy:
-        src: /etc/kubernetes/kubelet.conf
-        dest: "~/.kube/config"
-        owner: {{ ansible_user }}
-        group: {{ ansible_user  }}
-        mode: 0600
